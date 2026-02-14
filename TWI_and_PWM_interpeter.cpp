@@ -11,18 +11,16 @@ constexpr uint8_t WRITE = 0x0;    // SLA+W
 constexpr uint8_t READ  = 0x1;    // SLA+R
 
 inline void CLRTWINT()  { TWC |= 0x70; }  // Clear TWINT
-inline void WRITEBYTE() { TWC |= 0x74; }  // Write byte, clears TWINT & TWEN
+inline void WRITEBYTE() { TWC = 0x84; }  // Write byte, clears TWINT & TWEN
 
 int write(int filediscriptor, uint8_t *data, uint8_t len)/*ADDR must be first byte*/
 {
-  if(!(filediscriptor&0x20000000)!=0x0)
+  if((filediscriptor&0x20000000)==0x0)
   {
     return -1;
   }
   TWC = START;/*write START coindition*/
-  uint8_t flags = TWS;/*Check bits to make sure START good. does 2x but no check just in case*/
-  delay(100);
-  flags|=TWS;
+  uint8_t flags = TWS;/*Check bits to make sure START good. does 2x but no check just 
   if((TWS&0xF8)!=0x18)
   {
     TWC = STOP; /*Error out and send STOP condition*/
@@ -31,16 +29,17 @@ int write(int filediscriptor, uint8_t *data, uint8_t len)/*ADDR must be first by
   TWD=((uint8_t)((filediscriptor&0x7F)<<1))|WRITE;/*load addr to SLA+W*/
   
   WRITEBYTE(); /*write byte macro. clears TWINT and TWEN bits*/
-  if((TWS&0xF8)!=0x18)/*error out*/
+  while(!(TWC&0x80);
+  if((TWS&0xF8)!=0x08)/*error out*/
   {
     TWC = STOP;
     return -1;
   }
 
-  for(uint8_t i=1; i<len; i++)/*send out data bytes*/
+  for(uint8_t i=0; i<len; i++)/*send out data bytes*/
   {
-    TWD = *(data+i);
-    WRITEBYTE();
+    TWD = data[i];
+    TWC = 0x84
     if((TWS&0xF8)!=0x28)/*error out if no ACk and good data write*/ 
     {
       TWC = STOP;
@@ -53,33 +52,35 @@ int write(int filediscriptor, uint8_t *data, uint8_t len)/*ADDR must be first by
 
 int read(int filediscriptor, uint8_t *data, uint8_t len)
 {
-    if(!(filediscriptor&0x10000000)!=0x0)
+    if((filediscriptor&0x10000000)==0x0)
   {
     return -1;
   }
   TWC = START;/*write START coindition*/
-  uint8_t flags = TWS;/*Check bits to make sure START good. does 2x but no check just in case*/
-  delay(100);
-  flags|=TWS;
-  if((TWS&0xF8)!=0x18)
+  while(!(TWC&0x80));
+  if((TWS&0xF8)!=0x08)
   {
     TWC = STOP; /*Error out and send STOP condition*/
     return -1;/*emulating linux i2c return values, so this means no good*/
   }
-  TWD=((uint8_t)((filediscriptor&0x7F)<<1))|READ;/*load addr to SLA+W*/
-  
-  WRITEBYTE(); /*write byte macro. clears TWINT and TWEN bits*/
-  if((TWS&0xF8)!=0x18)/*error out*/
+  TWD=((uint8_t)((filediscriptor&0x7F)<<1))|READ;/*load addr to SLA+R*/
+  TWC = 0x84; /*write byte macro. clears TWINT and TWEN bits*/
+  while(!(TWC&0x80));
+  if((TWS&0xF8)!=0x40)/*error out*/
   {
     TWC = STOP;
     return -1;
   }
   
-  for(uint8_t i=1; i<len; i++)/*send out data bytes*/
+  for(uint8_t i=0; i<len; i++)/*send out data bytes*/
   {
-    TWD = *(data+i);
-    WRITEBYTE();
-    if((TWS&0xF8)!=0x28)/*error out if no ACk and good data write*/ 
+    if(i < len - 1)
+      TWC = 0xC4; // Read with ACK
+    else
+      TWC = 0x84; // Read with NACK (last byte)
+    while(!(TWC & 0x80));
+    data[i] = TWD;  // Actually READ the data
+    if(i < len - 1 && (TWS&0xF8)!=0x50)/*error out if no ACK*/
     {
       TWC = STOP;
       return -1;
