@@ -19,18 +19,18 @@ int write(int filediscriptor, uint8_t *data, uint8_t len)/*ADDR must be first by
   {
     return -1;
   }
-  TWC = START;/*write START coindition*/
-  uint8_t flags = TWS;/*Check bits to make sure START good. does 2x but no check just 
-  if((TWS&0xF8)!=0x18)
+  TWC = START;/*write START condition*/
+  while(!(TWC&0x80)); // Wait for START to complete
+  if((TWS&0xF8)!=0x08) // Check START condition status
   {
-    TWC = STOP; /*Error out and send STOP condition*/
-    return -1;/*emulating linux i2c return values, so this means no good*/
+    TWC = STOP;
+    return -1;
   }
   TWD=((uint8_t)((filediscriptor&0x7F)<<1))|WRITE;/*load addr to SLA+W*/
   
-  WRITEBYTE(); /*write byte macro. clears TWINT and TWEN bits*/
-  while(!(TWC&0x80);
-  if((TWS&0xF8)!=0x08)/*error out*/
+  TWC = 0x84; /*write byte*/
+  while(!(TWC&0x80)); // Wait for byte transmission
+  if((TWS&0xF8)!=0x18)/*error out - check SLA+W ACK*/
   {
     TWC = STOP;
     return -1;
@@ -39,8 +39,9 @@ int write(int filediscriptor, uint8_t *data, uint8_t len)/*ADDR must be first by
   for(uint8_t i=0; i<len; i++)/*send out data bytes*/
   {
     TWD = data[i];
-    TWC = 0x84
-    if((TWS&0xF8)!=0x28)/*error out if no ACk and good data write*/ 
+    TWC = 0x84;
+    while(!(TWC&0x80)); // Wait for byte transmission
+    if((TWS&0xF8)!=0x28)/*error out if no ACK and good data write*/ 
     {
       TWC = STOP;
       return -1;
